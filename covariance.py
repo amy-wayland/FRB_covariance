@@ -281,6 +281,7 @@ def build_covariance_matrix(ell, z_frb, cos_theta_matrix,
 plt.rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
+    "font.size": 14,
     "axes.linewidth": 1.2
 })
 
@@ -293,9 +294,6 @@ def plot_correlation_matrix(corr, z_frb, ell, f_sky=1.0):
 
     fig, ax = plt.subplots(figsize=(7, 6))
 
-    # Ensure values stay within [-1, 1]
-    # corr = np.clip(corr, -1.0, 1.0)
-
     # Plot r_ij with symmetric color scale
     im = ax.imshow(corr, cmap='RdBu_r', vmin=-1, vmax=1, aspect='auto')
 
@@ -306,8 +304,8 @@ def plot_correlation_matrix(corr, z_frb, ell, f_sky=1.0):
            + [f'$C_{{\\ell={ell}}}^{{\\mathcal{{DD}}}}$']
     ax.set_xticks(range(Ntot))
     ax.set_yticks(range(Ntot))
-    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=8)
-    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=12)
+    ax.set_yticklabels(labels, fontsize=12)
 
     # Highlight covariance blocks
     ax.add_patch(Rectangle((-0.5, -0.5), N, N,
@@ -325,7 +323,7 @@ def plot_correlation_matrix(corr, z_frb, ell, f_sky=1.0):
                            label='$\\mathrm{Cov}[C_\\ell, C_\\ell]$'))
 
     ax.set_title(f'Correlation matrix ($\\ell={ell}$, $f_{{\\rm sky}}={f_sky}$)')
-    ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
+    ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax.tick_params(which='major', direction='in', length=5, width=0.8, top=True, right=True)
     ax.tick_params(which='minor', direction='in', length=2, width=0.6, top=True, right=True)
 
