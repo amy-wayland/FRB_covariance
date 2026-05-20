@@ -210,14 +210,82 @@ def save_bispectrum(filename="bispectrum_grid.npz"):
 # Load and Interpolate Bispectrum
 # ------------------------------------------------------------
 
+class LogExtrapolatingBispectrumInterpolator:
+    """
+    Interpolates and extrapolates the bispectrum log-linearly in both k
+    dimensions and in log(B) space.
+
+    The two k axes are transformed to log(k) internally; the bispectrum
+    values are stored as log(B).  Points outside the k grid are extrapolated
+    using the local d(log B)/d(log k) slope computed from the two outermost
+    grid slices.  The a and phi axes are interpolated linearly and are NOT
+    extrapolated.
+    """
+
+    def __init__(self, a_grid, k_grid, phi_grid, B_grid):
+        log_k = np.log(k_grid)
+        log_B = np.log(np.maximum(B_grid, 1e-300))
+
+        self._log_k_min = log_k[0]
+        self._log_k_max = log_k[-1]
+
+        kw = dict(method='linear', bounds_error=False, fill_value=None)
+        self._interp = RegularGridInterpolator(
+            (a_grid, log_k, log_k, phi_grid), log_B, **kw
+        )
+
+        # d(log_B)/d(log_k) at the lower and upper k boundaries.
+        # Shape for k1 slopes: (na, nk2, nphi); for k2: (na, nk1, nphi).
+        dk_lo = log_k[1] - log_k[0]
+        dk_hi = log_k[-1] - log_k[-2]
+
+        self._sk1_lo = RegularGridInterpolator(
+            (a_grid, log_k, phi_grid),
+            (log_B[:, 1, :, :] - log_B[:, 0, :, :]) / dk_lo, **kw)
+        self._sk1_hi = RegularGridInterpolator(
+            (a_grid, log_k, phi_grid),
+            (log_B[:, -1, :, :] - log_B[:, -2, :, :]) / dk_hi, **kw)
+        self._sk2_lo = RegularGridInterpolator(
+            (a_grid, log_k, phi_grid),
+            (log_B[:, :, 1, :] - log_B[:, :, 0, :]) / dk_lo, **kw)
+        self._sk2_hi = RegularGridInterpolator(
+            (a_grid, log_k, phi_grid),
+            (log_B[:, :, -1, :] - log_B[:, :, -2, :]) / dk_hi, **kw)
+
+    def __call__(self, pts):
+        pts  = np.atleast_2d(np.asarray(pts, dtype=float))
+        a    = pts[:, 0]
+        lk1  = np.log(pts[:, 1])
+        lk2  = np.log(pts[:, 2])
+        phi  = pts[:, 3]
+
+        lk1_c = np.clip(lk1, self._log_k_min, self._log_k_max)
+        lk2_c = np.clip(lk2, self._log_k_min, self._log_k_max)
+
+        log_B = self._interp(np.column_stack([a, lk1_c, lk2_c, phi]))
+        # Log-linear extrapolation in k1
+        d1 = lk1 - lk1_c
+        m = d1 < 0
+        if np.any(m):
+            log_B[m] += self._sk1_lo(np.column_stack([a[m], lk2_c[m], phi[m]])) * d1[m]
+        m = d1 > 0
+        if np.any(m):
+            log_B[m] += self._sk1_hi(np.column_stack([a[m], lk2_c[m], phi[m]])) * d1[m]
+
+        # Log-linear extrapolation in k2
+        d2 = lk2 - lk2_c
+        m = d2 < 0
+        if np.any(m):
+            log_B[m] += self._sk2_lo(np.column_stack([a[m], lk1_c[m], phi[m]])) * d2[m]
+        m = d2 > 0
+        if np.any(m):
+            log_B[m] += self._sk2_hi(np.column_stack([a[m], lk1_c[m], phi[m]])) * d2[m]
+        return np.exp(log_B)
+
+
 def load_bispectrum(filename="bispectrum_grid.npz"):
     d = np.load(filename)
-
-    interp = RegularGridInterpolator(
-        (d["a_grid"], d["k_grid"], d["k_grid"], d["phi_grid"]),
-        d["B_grid"],
-        bounds_error=False,
-        fill_value=0.0
+    interp = LogExtrapolatingBispectrumInterpolator(
+        d["a_grid"], d["k_grid"], d["phi_grid"], d["B_grid"]
     )
-
     return interp, d

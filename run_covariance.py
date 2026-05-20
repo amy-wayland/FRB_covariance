@@ -35,61 +35,54 @@ if __name__ == "__main__":
     # ---------------------------------------------------
     # Multipoles to compute
     # ---------------------------------------------------
-    ell_boundaries = np.array([10, 20, 50, 100, 200, 500])
+    ell_boundaries = np.unique(np.geomspace(10, 1000, 20)).astype(int) 
+    #ell_boundaries = np.array([1000, 2000, 5000, 10000])
     delta_ell = np.diff(ell_boundaries)
     ell_centers = 0.5 * (ell_boundaries[:-1] + ell_boundaries[1:])
 
-    for i, ell in enumerate(ell_centers):
-        save_file = f"cov/covariance_matrix_ell{ell}.npz"
-        print("\n" + "=" * 50)
-        print(f"Processing ell = {ell}")
-        print("=" * 50)
+    # Build one joint covariance matrix over all ell bins.
+    # delta_ell is passed as the mean bin width (Knox formula denominator).
+    # For per-bin widths, pass a scalar representative value here.
+    mean_delta_ell = int(np.round(np.mean(delta_ell)))
 
-        # ---------------------------------------------------
-        # Load or compute
-        # ---------------------------------------------------
-        if os.path.exists(save_file):
-            print(f"Loading existing file for ell={ell}...")
-            data = np.load(save_file)
-            cov = data["cov"]
-            corr = data["corr"]
-            print(cov)
+    print("=" * 50)
+    print(f"Computing joint covariance for ell={ell_centers}, delta_ell={mean_delta_ell}")
+    print("=" * 50)
 
-        else:
-            print(f"Computing covariance matrix for ell={ell}...")
-            
-            cov, corr = build_covariance_matrix(
-                ell,
-                z_frb,
-                cos_theta,
-                f_sky=f_sky,
-                Nchi=50,
-                Nmu=40,
-                delta_ell=delta_ell[i]
-            )
+    cov, corr = build_covariance_matrix(
+        ell_centers,
+        z_frb,
+        cos_theta,
+        f_sky=f_sky,
+        Nchi=50,
+        Nmu=40,
+        delta_ell=mean_delta_ell,
+    )
 
-            os.makedirs(os.path.dirname(save_file), exist_ok=True)
+    os.makedirs("cov", exist_ok=True)
+    save_file = "cov/covariance_matrix.npz"
+    np.savez(
+        save_file,
+        cov=cov,
+        corr=corr,
+        z_frb=z_frb,
+        ell_centers=ell_centers,
+        cos_theta=cos_theta,
+    )
+    print(f"Saved {save_file}")
 
-            np.savez(
-                save_file,
-                cov=cov,
-                corr=corr,
-                z_frb=z_frb,
-                cos_theta=cos_theta
-            )
-            print(f"Saved {save_file}")
+    # ---------------------------------------------------
+    # Plot
+    # ---------------------------------------------------
+    plot_correlation_matrix(corr, z_frb, ell_centers, f_sky=f_sky)
 
-        # ---------------------------------------------------
-        # Plot
-        # ---------------------------------------------------
-        plot_correlation_matrix(corr, z_frb, ell, f_sky=f_sky)
+    # ---------------------------------------------------
+    # Diagnostics
+    # ---------------------------------------------------
+    N_frb = len(z_frb)
+    N_ell = len(ell_centers)
 
-        # ---------------------------------------------------
-        # Diagnostics
-        # ---------------------------------------------------
-        N = len(z_frb)
-
-        print("\nCorrelation coefficient summary:")
-        print(f"  Max |r| DD block:    {np.max(np.abs(corr[:N, :N] - np.eye(N))):.4f}")
-        print(f"  Max |r| cross block: {np.max(np.abs(corr[:N, N])):.4f}")
-        print(f"  Cov[C_ell, C_ell]:   {cov[N, N]:.4e}")
+    print("\nCorrelation coefficient summary:")
+    print(f"  Max |r| DD block:    {np.max(np.abs(corr[:N_frb, :N_frb] - np.eye(N_frb))):.4f}")
+    print(f"  Max |r| cross block: {np.max(np.abs(corr[:N_frb, N_frb:])):.4f}")
+    print(f"  Cov[C_ell, C_ell] diagonal: {np.diag(cov[N_frb:, N_frb:])}")
