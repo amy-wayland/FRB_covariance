@@ -1,15 +1,18 @@
 import numpy as np
 import os
 
-from covariance import build_covariance_matrix, plot_correlation_matrix
+from covariance import build_covariance_matrix, plot_correlation_matrix, zz, nz
 
 if __name__ == "__main__":
 
     # ---------------------------------------------------
     # FRB sample
     # ---------------------------------------------------
-    z_frb = np.array([0.1, 0.3, 0.5, 0.8, 1.0, 1.5])
-    N = len(z_frb)
+    rng = np.random.default_rng(42)
+    N = 6   # Fiducial number of FRBs
+    z_frb = rng.choice(zz, size=N, p=nz / np.sum(nz))
+    z_frb = np.sort(z_frb)
+    print("Sampled FRB redshifts:", z_frb)
     f_sky = 1
 
     # ---------------------------------------------------
@@ -17,7 +20,6 @@ if __name__ == "__main__":
     # of fractional area f_sky, centred on the north pole.
     #
     # ---------------------------------------------------
-    rng = np.random.default_rng(42)
     cos_theta_max = 1.0 - 2.0 * f_sky
     cos_colat = rng.uniform(cos_theta_max, 1.0, N)   # uniform in solid angle
     phi = rng.uniform(0, 2 * np.pi, N)
