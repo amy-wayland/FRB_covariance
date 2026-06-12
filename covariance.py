@@ -105,9 +105,10 @@ def C_ij_ell(ell, zi, zj, Nchi=100):
     a_arr = 1 / (1 + z_arr)
     k_arr = np.clip((ell + 0.5) / chi_arr, 1e-3, 1e2)
     # All chi in chi_arr <= chi_max <= min(chi_i, chi_j), so both kernels are non-zero
-    W_arr = A * (1 + z_arr) * 1e6
+    W_i = A * (1 + z_arr) * (chi_arr < chi_i) * 1e6
+    W_j = A * (1 + z_arr) * (chi_arr < chi_j) * 1e6
     Pe_arr = np.diag(Pe_interpolator(k_arr,a_arr))
-    integrand = W_arr**2 * Pe_arr / chi_arr**2
+    integrand = W_i * W_j * Pe_arr / chi_arr**2
     return np.trapz(integrand, chi_arr)
 
 def cov_DD(zi, zj, cos_theta, ell_max=500, Nchi=100, flat_sky=True):
