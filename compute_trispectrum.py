@@ -3,14 +3,6 @@ import pyccl as ccl
 import argparse
 import os
 import sys
-
-# --------------------------------------------------
-# Location of the BFC covariance code
-# --------------------------------------------------
-
-bfc_dir = "/mnt/users/waylanda/FRB_covariance_project/FRB_covariance_bfc"
-sys.path.insert(0, bfc_dir)
-
 from core import cosmo, hmc, pE
 from covariance import W_interp, chis, C_ell_DD
 
