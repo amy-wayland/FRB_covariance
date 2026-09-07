@@ -37,8 +37,9 @@ if __name__ == "__main__":
     # ---------------------------------------------------
     # Multipoles to compute
     # ---------------------------------------------------
-    ell_boundaries = np.unique(np.geomspace(10, 1000, 20)).astype(int) 
-    #ell_boundaries = np.array([1000, 2000, 5000, 10000])
+    nside = 512
+    ell_max = 3*512-1
+    ell_boundaries = np.unique(np.geomspace(2, ell_max, 15)).astype(int) 
     delta_ell = np.diff(ell_boundaries)
     ell_centers = 0.5 * (ell_boundaries[:-1] + ell_boundaries[1:])
 
@@ -59,6 +60,7 @@ if __name__ == "__main__":
         Nchi=50,
         Nmu=40,
         delta_ell=mean_delta_ell,
+        ell_max=ell_max
     )
 
     os.makedirs("cov", exist_ok=True)

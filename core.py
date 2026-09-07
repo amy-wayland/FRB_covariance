@@ -1,10 +1,64 @@
 import numpy as np
 import pyccl as ccl
-import HaloProfiles as hp
+import bfc_gas_profile as bfc
 import os
 from functools import lru_cache
+from pyccl import unlock_instance
 from pyccl.halos import Profile2pt
+from pyccl.halos.halo_model import HMCalculator
 from scipy.interpolate import RegularGridInterpolator
+
+# ----------------------------------------------------------
+# Halo Model Calculator
+# ----------------------------------------------------------
+
+class M200_2_Mtot:
+    def __init__(self, profile):
+        self.profile = profile
+    def __call__(self, cosmo, M, a):
+        rbin = np.geomspace(0.001, 50, 200)
+        pM = self.profile._real(cosmo, rbin, M, a)
+        return np.squeeze(self.profile.get_Mtot())
+
+__all__ = ['hmc_new']
+    
+class hmc_new(HMCalculator):
+    def __init__(self,  profile, mass_function, bias, MassDef, m200_to_mtot, 
+                 log10M_min=1e8, log10M_max=1e16, nM=128,
+                 integration_method_M = 'simpson',):
+        self.profile = profile
+        self.nM = mass_function
+        self.bM = bias
+        self.MassDef = MassDef
+        self.log10M_min = log10M_min
+        self.log10M_max = log10M_max
+
+        self.halo_m_to_mtot = m200_to_mtot
+        super().__init__(mass_function = mass_function, 
+                         halo_bias = bias, 
+                         mass_def  = MassDef,
+                         log10M_min = log10M_min, log10M_max = log10M_max, nM = nM,
+                         integration_method_M = integration_method_M)
+
+    @unlock_instance(mutate=False)
+    def _get_mass_function(self, cosmo, a, rho0):
+        # Compute the mass function at this cosmo and a.
+        if a != self._a_mf or cosmo != self._cosmo_mf:
+            self._mf = self.mass_function(cosmo, self._mass, a)
+            self._mtot  = self.halo_m_to_mtot(cosmo, self._mass, a)
+            self._mtot0 = self._mtot[0]
+            integ = self._integrator(self._mf*self._mtot, self._lmass)
+            self._mf0 = (rho0 - integ) / self._mtot0
+            self._cosmo_mf, self._a_mf = cosmo, a  # cache
+
+    @unlock_instance(mutate=False)
+    def _get_halo_bias(self, cosmo, a, rho0):
+        # Compute the halo bias at this cosmo and a.
+        if a != self._a_bf or cosmo != self._cosmo_bf:
+            self._bf = self.halo_bias(cosmo, self._mass, a)
+            integ = self._integrator(self._mf*self._bf*self._mtot, self._lmass)
+            self._mbf0 = (rho0 - integ) / self._mtot0
+            self._cosmo_bf, self._a_bf = cosmo, a  # cache
 
 # -----------------------------------------------------------
 # Cosmology
@@ -31,13 +85,17 @@ cM = ccl.halos.ConcentrationDuffy08(mass_def=hmd)
 nM = ccl.halos.MassFuncTinker08(mass_def=hmd)
 bM = ccl.halos.HaloBiasTinker10(mass_def=hmd)
 
-pE = hp.HaloProfileDensityHE(
-     mass_def=hmd, concentration=cM, 
-     lMc=14.0, beta=0.6, A_star=0.03, eta_b=0.5)
+pE = bfc.HaloProfileGasBFC(mass_def='200c', comoving=True, little_h=False)
 
-hmc = ccl.halos.HMCalculator(
-      mass_function=nM, halo_bias=bM, mass_def=hmd, 
-      log10M_max=15.0, log10M_min=10.0, nM=32)
+pE.update_precision_fftlog(padding_hi_fftlog=1e2, 
+                           padding_lo_fftlog=1e-2, 
+                           n_per_decade=500, 
+                           plaw_fourier=-2.)
+
+m200_to_mtot = M200_2_Mtot(pE)
+
+hmc = hmc_new(profile=pE, mass_function=nM, bias=bM, MassDef='200c', 
+              m200_to_mtot=m200_to_mtot, log10M_min=12.0, log10M_max=15.0, nM=64)
 
 # ------------------------------------------------------------
 # Kernels
@@ -80,8 +138,6 @@ def P_e_array(k, a):
     '''
     return ccl.halos.halomod_power_spectrum(
         cosmo, hmc, k, a, prof=pE)
-
-
 
 @lru_cache(maxsize=10000)
 def I_1_1(k, a):

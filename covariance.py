@@ -11,7 +11,7 @@ from core import cosmo, P_e, load_bispectrum, P_e_array
 # Load Bispectrum
 # -----------------------------------------------------------
 
-B_interp, data = load_bispectrum("bispectrum_grid.npz")
+B_interp, data = load_bispectrum("/mnt/users/waylanda/FRB_covariance_project/FRB_covariance_bfc/bispectrum_grid.npz")
 k_grid = data["k_grid"]
 
 # -----------------------------------------------------------
@@ -23,7 +23,7 @@ alpha = 3.5
 zz = np.linspace(0, 2, 128)
 aa = 1/(1+zz)
 nz = zz**2 * np.exp(-alpha*zz)
-nz = nz/np.trapz(nz, zz)
+nz = nz/np.trapezoid(nz, zz)
 
 # Want [G] = [cm^3 kg^{-1} s^{-2}]
 G_m3_per_kg_per_s2 = ccl.physical_constants.GNEWT
@@ -59,7 +59,7 @@ z_of_chi_interp = interp1d(chis, zz, bounds_error=False, fill_value="extrapolate
 W_interp = interp1d(chis, W_chi, bounds_error=False, fill_value=0.0)
 
 
-k_interp = np.geomspace(1e-4,1e2,500)
+k_interp = np.geomspace(1e-4, 1e3, 500)
 a_interp = np.linspace(.2, 1, 100)
 Pe_arr = P_e_array(k_interp, a_interp)
 Pe_interpolator = ccl.pk2d.Pk2D(a_arr = a_interp,
@@ -69,7 +69,7 @@ Pe_interpolator = ccl.pk2d.Pk2D(a_arr = a_interp,
                                 extrap_order_hik=1,
                                 is_logp=True)
 
-
+Pnl_interpolator = cosmo.get_nonlin_power()
 
 def E_of_chi(chi):
     z = z_of_chi_interp(chi)
@@ -79,6 +79,9 @@ def E_of_chi(chi):
 # -----------------------------------------------------------
 # DM-z Auto-Covariance
 # -----------------------------------------------------------
+
+nside = 512
+lmax = 3*nside-1
 
 def W_single_FRB(chi, chi_s):
     '''
@@ -92,26 +95,29 @@ def W_single_FRB(chi, chi_s):
 
 import time
 
-def C_ij_ell(ell, zi, zj, Nchi=100):
+def C_ij_ell(ell, zi, zj, Nchi=100, pk=None, chi_min=1.0):
     '''
     Angular power spectrum C_ij(ell) under the Limber approximation.
     '''
     chi_i = float(ccl.comoving_radial_distance(cosmo, 1/(1+zi)))
     chi_j = float(ccl.comoving_radial_distance(cosmo, 1/(1+zj)))
     chi_max = min(chi_i, chi_j)
-    chi_arr = np.linspace(1e-2, chi_max, Nchi)
+    chi_arr = np.linspace(chi_min, chi_max, Nchi)
 
     z_arr = z_of_chi_interp(chi_arr)
     a_arr = 1 / (1 + z_arr)
-    k_arr = np.clip((ell + 0.5) / chi_arr, 1e-3, 1e2)
+    k_arr = np.clip((ell + 0.5) / chi_arr, 1e-3, 1e3)
     # All chi in chi_arr <= chi_max <= min(chi_i, chi_j), so both kernels are non-zero
     W_i = A * (1 + z_arr) * (chi_arr < chi_i) * 1e6
     W_j = A * (1 + z_arr) * (chi_arr < chi_j) * 1e6
-    Pe_arr = np.diag(Pe_interpolator(k_arr,a_arr))
-    integrand = W_i * W_j * Pe_arr / chi_arr**2
-    return np.trapz(integrand, chi_arr)
 
-def cov_DD(zi, zj, cos_theta, ell_max=500, Nchi=100, flat_sky=True):
+    if pk is None:
+        pk = Pe_interpolator
+    Pe_arr = np.diag(pk(k_arr, a_arr, cosmo=cosmo))
+    integrand = W_i * W_j * Pe_arr / chi_arr**2
+    return np.trapezoid(integrand, chi_arr)
+
+def cov_DD(zi, zj, cos_theta, ell_max=lmax, Nchi=100, flat_sky=True, pk=None, chi_min=1.0):
     '''
     DM-DM auto-covariance summed over multipoles.
 
@@ -119,13 +125,13 @@ def cov_DD(zi, zj, cos_theta, ell_max=500, Nchi=100, flat_sky=True):
     If flat_sky=True, it uses the flat-sky Bessel-integral approximation:
         Cov(theta) = int d ell [ell / (2 pi)] J_0(ell theta) C_ij(ell).
     '''
-    ell_arr = np.unique(np.round(np.logspace(0, np.log10(500), 100)).astype(int))
-    C_ell_arr = np.array([C_ij_ell(ell, zi, zj, Nchi=Nchi) for ell in ell_arr])
+    ell_arr = np.unique(np.round(np.logspace(0, np.log10(ell_max), 100)).astype(int))
+    C_ell_arr = np.array([C_ij_ell(ell, zi, zj, Nchi=Nchi, pk=pk, chi_min=chi_min) for ell in ell_arr])
 
     if not flat_sky:
         P_ell_arr = np.array([float(eval_legendre(ell, cos_theta)) for ell in ell_arr])
         integrand = (2 * ell_arr + 1) / (4 * np.pi) * P_ell_arr * C_ell_arr
-        return np.trapz(integrand, ell_arr)
+        return np.trapezoid(integrand, ell_arr)
 
     cos_theta = np.clip(cos_theta, -1.0, 1.0)
     theta = np.arccos(cos_theta)
@@ -150,9 +156,9 @@ def C_ell_DD(ell, Nchi=100):
     z_arr   = z_of_chi_interp(chi_arr)
     a_arr   = 1 / (1 + z_arr)
     W_arr   = W_interp(chi_arr)
-    k_arr   = np.clip((ell + 0.5) / chi_arr, 1e-3, 1e2)
+    k_arr   = np.clip((ell + 0.5) / chi_arr, 1e-3, 1e3)
     Pe_arr  = np.diag(Pe_interpolator(k_arr, a_arr))
-    return np.trapz(W_arr**2 * Pe_arr / chi_arr**2, chi_arr)
+    return np.trapezoid(W_arr**2 * Pe_arr / chi_arr**2, chi_arr)
 
 def cov_ClCl(ell, ell_prime, f_sky=1.0, Nchi=100, delta_ell=1):
     '''
@@ -257,7 +263,7 @@ def covariance_DM_Cl(ell, z1, z2, z3, Nchi=20, Nmu=40):
         pts[:, 0] = a1_arr[i1]
         B_3d  = B_interp(pts).reshape(Nchi, Nchi, Nmu)
         j0_3d = spherical_jn(0, k1_3d * chi1_arr[i1])
-        mu_int = np.trapz(j0_3d * Pell_arr * B_3d, mu_arr, axis=-1)
+        mu_int = np.trapezoid(j0_3d * Pell_arr * B_3d, mu_arr, axis=-1)
         result += G1[i1] * np.sum(G23 * mu_int)
 
     return result * prefactor * dchi1 * dchi2 * dchi3 / Mpc_to_pc
@@ -268,7 +274,8 @@ def covariance_DM_Cl(ell, z1, z2, z3, Nchi=20, Nmu=40):
 
 def build_covariance_matrix(ell_arr, z_frb, cos_theta_matrix,
                             f_sky=0.7, Nchi=50, Nmu=40,
-                            flat_sky=False, delta_ell=1):
+                            flat_sky=False, delta_ell=1,
+                            ell_max=1000, pk=None, chi_min=1.0):
     '''
     Build the full (N_frb + N_ell) x (N_frb + N_ell) covariance matrix:
 
@@ -290,7 +297,8 @@ def build_covariance_matrix(ell_arr, z_frb, cos_theta_matrix,
         for j in range(i, N_frb):
             val = cov_DD(
                 z_frb[i], z_frb[j], cos_theta_matrix[i, j],
-                Nchi=Nchi, flat_sky=flat_sky
+                Nchi=Nchi, flat_sky=flat_sky,
+                ell_max=1000, pk=None, chi_min=1.0
             )
             cov[i, j] = val
             cov[j, i] = val
