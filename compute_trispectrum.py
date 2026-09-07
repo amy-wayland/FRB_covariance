@@ -85,7 +85,7 @@ def bin_nodes(edges, n_sub=6):
 def bin_average(cov_ll, union, nodes):
     """
     Weighted double average of cov_ll over each pair of bins;
-    Eq. (73) of arXiv:2410.06962.
+    Eq. (47) of arXiv:2410.06962.
     """
     nb = len(nodes)
     out = np.zeros((nb, nb))
